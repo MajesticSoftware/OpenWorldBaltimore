@@ -9,11 +9,11 @@ const root = path.join(__dirname, '..');
 // Proper equirectangular to cubemap face conversion
 // For each pixel on a cubemap face, compute the 3D direction vector,
 // then map it back to the equirectangular panorama coordinates.
-async function equirectToCubemap(inputPath, outputDir, faceSize = 512) {
+async function equirectToCubemap(inputPath, outputDir, faceSize = 512, flipV = true) {
   fs.mkdirSync(outputDir, { recursive: true });
 
-  // Flip vertically first — these panoramas have sky at bottom, ground at top
-  const img = sharp(inputPath).flip();
+  // Optionally flip vertically — some panoramas have sky at bottom, ground at top
+  const img = flipV ? sharp(inputPath).flip() : sharp(inputPath);
   const meta = await sharp(inputPath).metadata();
   const srcW = meta.width;
   const srcH = meta.height;
@@ -87,6 +87,13 @@ async function main() {
     path.join(root, 'public/mountain_skybox/textures/Material.001_baseColor.png'),
     path.join(root, 'public/skybox-faces/mountain'),
     512
+  );
+  console.log('Converting anime sky skybox...');
+  await equirectToCubemap(
+    path.join(root, 'public/free_-_skybox_anime_sky/textures/Scene_-_Root_diffuse.jpeg'),
+    path.join(root, 'public/skybox-faces/anime'),
+    512,
+    false // already correctly oriented, no flip needed
   );
   console.log('All done!');
 }

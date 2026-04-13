@@ -10,7 +10,7 @@ const BALTIMORE_LNG = -76.6122
 const INITIAL_ALT = 800
 
 type GameMode = 'orbit' | 'spaceship'
-type SkyboxOption = 'default' | 'sunset' | 'night' | 'forest' | 'mountain'
+type SkyboxOption = 'default' | 'sunset' | 'night' | 'forest' | 'mountain' | 'anime'
 
 const SKYBOX_OPTIONS: { id: SkyboxOption; label: string; color: string }[] = [
   { id: 'default', label: 'Default', color: 'bg-sky-400' },
@@ -18,6 +18,7 @@ const SKYBOX_OPTIONS: { id: SkyboxOption; label: string; color: string }[] = [
   { id: 'night', label: 'Night', color: 'bg-indigo-900' },
   { id: 'forest', label: 'Forest', color: 'bg-emerald-500' },
   { id: 'mountain', label: 'Mountain', color: 'bg-stone-400' },
+  { id: 'anime', label: 'Anime', color: 'bg-cyan-400' },
 ]
 
 // UFO flight state
@@ -37,6 +38,7 @@ export default function CesiumScene() {
   const lastMouseRef = useRef({ x: 0, y: 0 })
   const ufoEntityRef = useRef<Cesium.Entity | null>(null)
   const animFrameRef = useRef<number>(0)
+  const wobbleTimeRef = useRef<number>(0)
   const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState<GameMode>('orbit')
   const [hudData, setHudData] = useState({ lat: BALTIMORE_LAT, lng: BALTIMORE_LNG, alt: INITIAL_ALT, speed: 0 })
@@ -80,7 +82,7 @@ export default function CesiumScene() {
       scene.backgroundColor = Cesium.Color.BLACK
       if (scene.sun) scene.sun.show = true
       if (scene.moon) scene.moon.show = true
-    } else if (skybox === 'forest' || skybox === 'mountain') {
+    } else if (skybox === 'forest' || skybox === 'mountain' || skybox === 'anime') {
       // Use pre-split cubemap face images
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = false
       if (scene.sun) scene.sun.show = true
@@ -356,13 +358,19 @@ export default function CesiumScene() {
       flight.position = Cesium.Cartesian3.fromRadians(carto.longitude, carto.latitude, carto.height)
       flight.speed = Math.sqrt(forwardSpeed * forwardSpeed + strafeSpeed * strafeSpeed + verticalSpeed * verticalSpeed)
 
-      // Update UFO entity position
+      // Update UFO entity position with wobble
+      wobbleTimeRef.current += dt
+      const t = wobbleTimeRef.current
+      const wobbleRoll = Math.sin(t * 1.3) * 0.06
+      const wobblePitch = Math.sin(t * 0.9 + 1.2) * 0.04
+      const tiltRoll = (strafeSpeed / MOVE_SPEED) * 0.18  // bank into turns
+      const tiltPitch = (-forwardSpeed / MOVE_SPEED) * 0.08 // nose dip on acceleration
       if (ufoEntityRef.current) {
         ufoEntityRef.current.position = new Cesium.ConstantPositionProperty(flight.position)
         ufoEntityRef.current.orientation = new Cesium.ConstantProperty(
           Cesium.Transforms.headingPitchRollQuaternion(
             flight.position,
-            new Cesium.HeadingPitchRoll(flight.heading, 0, 0)
+            new Cesium.HeadingPitchRoll(flight.heading, wobblePitch + tiltPitch, wobbleRoll + tiltRoll)
           )
         )
       }

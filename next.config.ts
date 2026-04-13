@@ -1,13 +1,23 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
   reactCompiler: false,
   turbopack: {
     resolveAlias: {
-      // Point cesium imports to the pre-built ESM bundle to avoid
-      // Turbopack processing Cesium source files (which contain octal escapes)
+      // Dev: point cesium to pre-built bundle (avoids octal escape in source files)
       cesium: 'cesium/Build/Cesium/Cesium.js',
     },
+  },
+  // Production: same alias for webpack so next build also skips raw Cesium source
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        cesium: path.resolve('./node_modules/cesium/Build/Cesium/Cesium.js'),
+      }
+    }
+    return config
   },
   serverExternalPackages: ['cesium'],
   env: {
