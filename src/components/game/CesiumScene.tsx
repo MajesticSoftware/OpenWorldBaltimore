@@ -35,7 +35,11 @@ interface FlightState {
   speed: number
 }
 
-export default function CesiumScene() {
+interface Props {
+  ionToken: string
+}
+
+export default function CesiumScene({ ionToken }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<CesiumType.Viewer | null>(null)
   const flightRef = useRef<FlightState | null>(null)
@@ -171,7 +175,7 @@ export default function CesiumScene() {
   useEffect(() => {
     if (!containerRef.current || viewerRef.current) return
 
-    Cesium.Ion.defaultAccessToken = (process.env.NEXT_PUBLIC_CESIUM_ION_TOKEN || '').trim()
+    Cesium.Ion.defaultAccessToken = ionToken.trim()
 
     const viewer = new Cesium.Viewer(containerRef.current, {
       globe: false,
