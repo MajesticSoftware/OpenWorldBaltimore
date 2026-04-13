@@ -67,6 +67,29 @@ export default function CesiumScene() {
     return canvas.toDataURL('image/png')
   }, [])
 
+  // Compute the u_cubeMapPanoramaTransform matrix for a given ECEF position.
+  // Activates Cesium's FY skybox shader so the cubemap horizon aligns with local ground.
+  // T = enuToEcef * M  where M maps: cubemap+X→East, cubemap+Y→Up, cubemap+Z→South
+  // Derived from: v_texCoord at screen-center = T⁻¹ * camera_look_ECEF,
+  // so T⁻¹*(local_up_ECEF) = (0,1,0) → samples py (sky face) when looking up. ✓
+  const computeSkyboxTransform = useCallback((pos: CesiumType.Cartesian3) => {
+    const carto = Cesium.Cartographic.fromCartesian(pos)
+    const ground = Cesium.Cartesian3.fromRadians(carto.longitude, carto.latitude, 0)
+    const enuToEcef = Cesium.Transforms.eastNorthUpToFixedFrame(ground)
+    const enuRot = Cesium.Matrix4.getMatrix3(enuToEcef, new Cesium.Matrix3())
+    // M: col0=(1,0,0) East→+X, col1=(0,0,1) Up→+Y, col2=(0,-1,0) South→+Z
+    // Matrix3 constructor is column-major: (col0r0,col0r1,col0r2, col1r0,...)
+    const M = new Cesium.Matrix3(1, 0, 0,  0, 0, 1,  0, -1, 0)
+    return Cesium.Matrix3.multiply(enuRot, M, new Cesium.Matrix3())
+  }, [])
+
+  // Inject the ENU transform into a freshly created SkyBox before first render.
+  // Must be set BEFORE update() runs so Cesium compiles the FY shader (not UY).
+  const applySkyboxTransform = useCallback((skyBox: CesiumType.SkyBox, pos: CesiumType.Cartesian3) => {
+    const pano = (skyBox as unknown as Record<string, Record<string, unknown>>)._panorama
+    if (pano) pano._transform = computeSkyboxTransform(pos)
+  }, [computeSkyboxTransform])
+
   // Apply skybox changes
   useEffect(() => {
     const viewer = viewerRef.current
@@ -95,56 +118,54 @@ export default function CesiumScene() {
       if (scene.sun) scene.sun.show = false
       if (scene.moon) scene.moon.show = false
       const dir = '/sky_93_2k/sky_93_cubemap_2k'
-      scene.skyBox = new Cesium.SkyBox({
+      const sb = new Cesium.SkyBox({
         sources: {
-          positiveX: `${dir}/px.png`,
-          negativeX: `${dir}/nx.png`,
-          positiveY: `${dir}/py.png`,
-          negativeY: `${dir}/ny.png`,
-          positiveZ: `${dir}/pz.png`,
-          negativeZ: `${dir}/nz.png`,
+          positiveX: `${dir}/px.png`, negativeX: `${dir}/nx.png`,
+          positiveY: `${dir}/py.png`, negativeY: `${dir}/ny.png`,
+          positiveZ: `${dir}/pz.png`, negativeZ: `${dir}/nz.png`,
         },
       })
+      applySkyboxTransform(sb, viewer.camera.position)
+      scene.skyBox = sb
       scene.backgroundColor = Cesium.Color.BLACK
     } else if (skybox === 'forest' || skybox === 'mountain' || skybox === 'anime') {
-      // Use pre-split cubemap face images
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = false
       if (scene.sun) scene.sun.show = true
       if (scene.moon) scene.moon.show = false
       const dir = `/skybox-faces/${skybox}`
-      scene.skyBox = new Cesium.SkyBox({
+      const sb = new Cesium.SkyBox({
         sources: {
-          positiveX: `${dir}/px.jpg`,
-          negativeX: `${dir}/nx.jpg`,
-          positiveY: `${dir}/py.jpg`,
-          negativeY: `${dir}/ny.jpg`,
-          positiveZ: `${dir}/pz.jpg`,
-          negativeZ: `${dir}/nz.jpg`,
+          positiveX: `${dir}/px.jpg`, negativeX: `${dir}/nx.jpg`,
+          positiveY: `${dir}/py.jpg`, negativeY: `${dir}/ny.jpg`,
+          positiveZ: `${dir}/pz.jpg`, negativeZ: `${dir}/nz.jpg`,
         },
       })
+      applySkyboxTransform(sb, viewer.camera.position)
+      scene.skyBox = sb
       scene.backgroundColor = Cesium.Color.BLACK
     } else {
-      // Gradient skyboxes (sunset, night) — use makeGradientFace for square canvas faces
+      // Gradient skyboxes (sunset, night)
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = false
       if (scene.sun) scene.sun.show = skybox !== 'night'
       if (scene.moon) scene.moon.show = skybox === 'night'
-
       const gradients: Record<string, [string, string, string]> = {
         sunset: ['#1a0a2e', '#cc5522', '#ffaa44'],
         night: ['#020111', '#0a0a2e', '#050510'],
       }
       const [top, mid, bot] = gradients[skybox] || ['#000', '#333', '#000']
       const face = makeGradientFace(top, mid, bot)
-      scene.skyBox = new Cesium.SkyBox({
+      const sb = new Cesium.SkyBox({
         sources: {
           positiveX: face, negativeX: face,
           positiveY: face, negativeY: face,
           positiveZ: face, negativeZ: face,
         },
       })
+      applySkyboxTransform(sb, viewer.camera.position)
+      scene.skyBox = sb
       scene.backgroundColor = Cesium.Color.BLACK
     }
-  }, [skybox, makeGradientFace])
+  }, [skybox, makeGradientFace, applySkyboxTransform])
 
   // Initialize CesiumJS viewer
   useEffect(() => {
@@ -217,37 +238,20 @@ export default function CesiumScene() {
 
     setTimeout(() => setLoading(false), 2500)
 
-    // Fix skybox ECEF tilt: Cesium renders skyboxes in ECEF space but our
-    // panoramas expect local horizon = midline. At Baltimore (39°N), the ECEF
-    // axes are ~51° off from the local horizon, making the sky look sideways.
-    // Apply the ENU rotation so the skybox horizon aligns with the local ground.
+    // Keep custom skybox transform updated as the camera moves (different lat = different ENU frame).
+    // _panorama._transform is the u_cubeMapPanoramaTransform uniform read each frame — just mutate it.
     let lastSkyboxOrientUpdate = 0
     const removeSkyboxOrient = viewer.scene.preRender.addEventListener(() => {
+      if (skyboxRef.current === 'default') return
       const now = Date.now()
       if (now - lastSkyboxOrientUpdate < 300) return
-      if (skyboxRef.current === 'default') return // Cesium star skybox is fine in ECEF
       lastSkyboxOrientUpdate = now
-
-      const sb = viewer.scene.skyBox
-      if (!sb) return
       try {
-        // Build ECEF→ENU rotation at the viewer's current ground position
-        const carto = Cesium.Cartographic.fromCartesian(viewer.camera.position)
-        const groundPos = Cesium.Cartesian3.fromRadians(carto.longitude, carto.latitude, 0)
-        const enuToEcef = Cesium.Transforms.eastNorthUpToFixedFrame(groundPos)
-        const enuRot = Cesium.Matrix4.getMatrix3(enuToEcef, new Cesium.Matrix3())
-        const ecefToEnu = Cesium.Matrix3.transpose(enuRot, new Cesium.Matrix3())
-        // Remap ENU axes to cubemap axes: East→+X, Up→+Y, North→-Z
-        // Matrix3 constructor is column-major: (col0r0,col0r1,col0r2, col1r0...)
-        const enuToCube = new Cesium.Matrix3(
-          1, 0,  0,   // col0 (East  → cubemap +X)
-          0, 0, -1,   // col1 (North → cubemap -Z)
-          0, 1,  0    // col2 (Up    → cubemap +Y)
-        )
-        const rot = Cesium.Matrix3.multiply(enuToCube, ecefToEnu, new Cesium.Matrix3())
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ;(sb as any).modelMatrix = Cesium.Matrix4.fromRotationTranslation(rot, Cesium.Cartesian3.ZERO)
-      } catch { /* viewer may be mid-frame */ }
+        const pano = (viewer.scene.skyBox as unknown as Record<string, Record<string, unknown>>)?._panorama
+        if (pano?._transform) {
+          pano._transform = computeSkyboxTransform(viewer.camera.position)
+        }
+      } catch { /* ignore */ }
     })
 
     return () => {
