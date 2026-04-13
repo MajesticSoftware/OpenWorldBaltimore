@@ -1,21 +1,23 @@
 import type { NextConfig } from "next";
-import path from "path";
 
 const nextConfig: NextConfig = {
   reactCompiler: false,
   turbopack: {
     resolveAlias: {
-      // Dev: point cesium to pre-built bundle (avoids octal escape in source files)
+      // Dev (Turbopack): point cesium to pre-built bundle — avoids Turbopack
+      // processing Cesium source files which contain octal escapes
       cesium: 'cesium/Build/Cesium/Cesium.js',
     },
   },
-  // Production: same alias for webpack so next build also skips raw Cesium source
+  // Production (webpack): mark cesium as an external global so webpack/Terser
+  // never touch the Cesium source. 'import * as Cesium' compiles to window.Cesium.
+  // The actual Cesium.js is loaded via <Script> in play/page.tsx.
   webpack: (config, { isServer }) => {
     if (!isServer) {
-      config.resolve.alias = {
-        ...config.resolve.alias,
-        cesium: path.resolve('./node_modules/cesium/Build/Cesium/Cesium.js'),
-      }
+      config.externals = [
+        ...(Array.isArray(config.externals) ? config.externals : []),
+        { cesium: 'Cesium' },
+      ]
     }
     return config
   },
