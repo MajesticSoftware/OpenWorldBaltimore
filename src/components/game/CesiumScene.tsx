@@ -196,11 +196,11 @@ export default function CesiumScene({ ionToken }: Props) {
 
     viewerRef.current = viewer
 
-    // Remove default credit display clutter
+    // Keep Google/Cesium credit badge visible — contractually required by Google Maps Platform ToS.
+    // Only reduce font size slightly for tidiness; opacity and visibility must remain at default.
     try {
       const creditContainer = viewer.cesiumWidget.creditContainer as HTMLElement
       creditContainer.style.fontSize = '10px'
-      creditContainer.style.opacity = '0.6'
     } catch { /* ignore */ }
 
     // Fly to Baltimore immediately
