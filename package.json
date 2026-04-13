@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "rm -rf public/cesium && cp -r node_modules/cesium/Build/Cesium public/cesium || true"
+    "postinstall": "rm -rf public/cesium && cp -r node_modules/cesium/Build/Cesium public/cesium && node scripts/patch-cesium.mjs || true"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.0.7",
