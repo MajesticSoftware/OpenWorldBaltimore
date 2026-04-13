@@ -9,13 +9,13 @@ import { Loader2, Rocket, Globe, Sun, Moon } from 'lucide-react'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const Cesium: typeof CesiumType
 
-// Baltimore Inner Harbor
+// Baltimore Inner Harbor (corrected to center of Inner Harbor promenade)
 const BALTIMORE_LAT = 39.2856
-const BALTIMORE_LNG = -76.6122
+const BALTIMORE_LNG = -76.6062
 const INITIAL_ALT = 800
 
 type GameMode = 'orbit' | 'spaceship'
-type SkyboxOption = 'default' | 'sunset' | 'night' | 'forest' | 'mountain' | 'anime'
+type SkyboxOption = 'default' | 'sunset' | 'night' | 'forest' | 'mountain' | 'anime' | 'sky93'
 
 const SKYBOX_OPTIONS: { id: SkyboxOption; label: string; color: string }[] = [
   { id: 'default', label: 'Default', color: 'bg-sky-400' },
@@ -24,6 +24,7 @@ const SKYBOX_OPTIONS: { id: SkyboxOption; label: string; color: string }[] = [
   { id: 'forest', label: 'Forest', color: 'bg-emerald-500' },
   { id: 'mountain', label: 'Mountain', color: 'bg-stone-400' },
   { id: 'anime', label: 'Anime', color: 'bg-cyan-400' },
+  { id: 'sky93', label: 'Dusk', color: 'bg-blue-700' },
 ]
 
 // UFO flight state
@@ -87,6 +88,22 @@ export default function CesiumScene() {
       scene.backgroundColor = Cesium.Color.BLACK
       if (scene.sun) scene.sun.show = true
       if (scene.moon) scene.moon.show = true
+    } else if (skybox === 'sky93') {
+      if (scene.skyAtmosphere) scene.skyAtmosphere.show = false
+      if (scene.sun) scene.sun.show = false
+      if (scene.moon) scene.moon.show = false
+      const dir = '/sky_93_2k/sky_93_cubemap_2k'
+      scene.skyBox = new Cesium.SkyBox({
+        sources: {
+          positiveX: `${dir}/px.png`,
+          negativeX: `${dir}/nx.png`,
+          positiveY: `${dir}/py.png`,
+          negativeY: `${dir}/ny.png`,
+          positiveZ: `${dir}/pz.png`,
+          negativeZ: `${dir}/nz.png`,
+        },
+      })
+      scene.backgroundColor = Cesium.Color.BLACK
     } else if (skybox === 'forest' || skybox === 'mountain' || skybox === 'anime') {
       // Use pre-split cubemap face images
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = false
