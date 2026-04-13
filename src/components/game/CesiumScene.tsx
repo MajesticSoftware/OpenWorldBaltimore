@@ -1,8 +1,13 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import * as Cesium from 'cesium'
+import type * as CesiumType from 'cesium'
 import { Loader2, Rocket, Globe, Sun, Moon } from 'lucide-react'
+
+// Cesium is loaded as a plain <script> tag in play/page.tsx (window.Cesium).
+// import type erases at compile time — webpack/Terser never touch the Cesium package.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare const Cesium: typeof CesiumType
 
 // Baltimore Inner Harbor
 const BALTIMORE_LAT = 39.2856
@@ -23,7 +28,7 @@ const SKYBOX_OPTIONS: { id: SkyboxOption; label: string; color: string }[] = [
 
 // UFO flight state
 interface FlightState {
-  position: Cesium.Cartesian3
+  position: CesiumType.Cartesian3
   heading: number
   pitch: number
   speed: number
@@ -31,12 +36,12 @@ interface FlightState {
 
 export default function CesiumScene() {
   const containerRef = useRef<HTMLDivElement>(null)
-  const viewerRef = useRef<Cesium.Viewer | null>(null)
+  const viewerRef = useRef<CesiumType.Viewer | null>(null)
   const flightRef = useRef<FlightState | null>(null)
   const keysRef = useRef<Set<string>>(new Set())
   const isDraggingRef = useRef(false)
   const lastMouseRef = useRef({ x: 0, y: 0 })
-  const ufoEntityRef = useRef<Cesium.Entity | null>(null)
+  const ufoEntityRef = useRef<CesiumType.Entity | null>(null)
   const animFrameRef = useRef<number>(0)
   const wobbleTimeRef = useRef<number>(0)
   const [loading, setLoading] = useState(true)
@@ -166,7 +171,7 @@ export default function CesiumScene() {
 
     // Load Google Photorealistic 3D Tiles
     // @ts-expect-error onlyUsingWithGoogleGeocoder is valid but not in TS types
-    Cesium.createGooglePhotorealistic3DTileset(undefined, { onlyUsingWithGoogleGeocoder: true }).then((tileset: Cesium.Cesium3DTileset) => {
+    Cesium.createGooglePhotorealistic3DTileset(undefined, { onlyUsingWithGoogleGeocoder: true }).then((tileset: CesiumType.Cesium3DTileset) => {
       const v = viewerRef.current
       if (!v || v.isDestroyed()) return
       v.scene.primitives.add(tileset)
