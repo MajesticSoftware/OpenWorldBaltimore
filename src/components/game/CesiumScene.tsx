@@ -148,7 +148,7 @@ export default function CesiumScene() {
   useEffect(() => {
     if (!containerRef.current || viewerRef.current) return
 
-    Cesium.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_ION_TOKEN || ''
+    Cesium.Ion.defaultAccessToken = (process.env.NEXT_PUBLIC_CESIUM_ION_TOKEN || '').trim()
 
     const viewer = new Cesium.Viewer(containerRef.current, {
       globe: false,
