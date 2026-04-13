@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type * as CesiumType from 'cesium'
 import { Loader2, Rocket, Globe, Sun, Moon } from 'lucide-react'
 
@@ -67,28 +67,25 @@ export default function CesiumScene() {
     return canvas.toDataURL('image/png')
   }, [])
 
-  // Compute the u_cubeMapPanoramaTransform matrix for a given ECEF position.
-  // Activates Cesium's FY skybox shader so the cubemap horizon aligns with local ground.
-  // T = enuToEcef * M  where M maps: cubemap+X→East, cubemap+Y→Up, cubemap+Z→South
-  // Derived from: v_texCoord at screen-center = T⁻¹ * camera_look_ECEF,
-  // so T⁻¹*(local_up_ECEF) = (0,1,0) → samples py (sky face) when looking up. ✓
-  const computeSkyboxTransform = useCallback((pos: CesiumType.Cartesian3) => {
-    const carto = Cesium.Cartographic.fromCartesian(pos)
-    const ground = Cesium.Cartesian3.fromRadians(carto.longitude, carto.latitude, 0)
+  // Compute u_cubeMapPanoramaTransform once for Baltimore.
+  // T = enuToEcef * M  maps cubemap axes to ECEF: +X→East, +Y→Up, +Z→South
+  // T is derived from a fixed geographic point so it never changes during a session
+  // (avoids 300ms discrete snapping that made the sky appear to rotate with the camera).
+  // T⁻¹*(local_up_ECEF) = (0,1,0) → looking up samples py (sky face). ✓
+  const SKYBOX_TRANSFORM = useMemo(() => {
+    const ground = Cesium.Cartesian3.fromDegrees(BALTIMORE_LNG, BALTIMORE_LAT, 0)
     const enuToEcef = Cesium.Transforms.eastNorthUpToFixedFrame(ground)
     const enuRot = Cesium.Matrix4.getMatrix3(enuToEcef, new Cesium.Matrix3())
-    // M: col0=(1,0,0) East→+X, col1=(0,0,1) Up→+Y, col2=(0,-1,0) South→+Z
-    // Matrix3 constructor is column-major: (col0r0,col0r1,col0r2, col1r0,...)
     const M = new Cesium.Matrix3(1, 0, 0,  0, 0, 1,  0, -1, 0)
     return Cesium.Matrix3.multiply(enuRot, M, new Cesium.Matrix3())
   }, [])
 
   // Inject the ENU transform into a freshly created SkyBox before first render.
-  // Must be set BEFORE update() runs so Cesium compiles the FY shader (not UY).
-  const applySkyboxTransform = useCallback((skyBox: CesiumType.SkyBox, pos: CesiumType.Cartesian3) => {
+  // Must be called BEFORE Cesium's update() so it compiles the FY shader (not UY).
+  const applySkyboxTransform = useCallback((skyBox: CesiumType.SkyBox) => {
     const pano = (skyBox as unknown as Record<string, Record<string, unknown>>)._panorama
-    if (pano) pano._transform = computeSkyboxTransform(pos)
-  }, [computeSkyboxTransform])
+    if (pano) pano._transform = SKYBOX_TRANSFORM
+  }, [SKYBOX_TRANSFORM])
 
   // Apply skybox changes
   useEffect(() => {
@@ -125,7 +122,7 @@ export default function CesiumScene() {
           positiveZ: `${dir}/pz.png`, negativeZ: `${dir}/nz.png`,
         },
       })
-      applySkyboxTransform(sb, viewer.camera.position)
+      applySkyboxTransform(sb)
       scene.skyBox = sb
       scene.backgroundColor = Cesium.Color.BLACK
     } else if (skybox === 'forest' || skybox === 'mountain' || skybox === 'anime') {
@@ -140,7 +137,7 @@ export default function CesiumScene() {
           positiveZ: `${dir}/pz.jpg`, negativeZ: `${dir}/nz.jpg`,
         },
       })
-      applySkyboxTransform(sb, viewer.camera.position)
+      applySkyboxTransform(sb)
       scene.skyBox = sb
       scene.backgroundColor = Cesium.Color.BLACK
     } else {
@@ -161,7 +158,7 @@ export default function CesiumScene() {
           positiveZ: face, negativeZ: face,
         },
       })
-      applySkyboxTransform(sb, viewer.camera.position)
+      applySkyboxTransform(sb)
       scene.skyBox = sb
       scene.backgroundColor = Cesium.Color.BLACK
     }
@@ -228,7 +225,7 @@ export default function CesiumScene() {
         uri: '/ufoHQ/scene.gltf',
         minimumPixelSize: 32,
         maximumScale: 20,
-        scale: 0.5,
+        scale: 0.17,
         silhouetteColor: Cesium.Color.CYAN,
         silhouetteSize: 1,
       },
@@ -238,24 +235,7 @@ export default function CesiumScene() {
 
     setTimeout(() => setLoading(false), 2500)
 
-    // Keep custom skybox transform updated as the camera moves (different lat = different ENU frame).
-    // _panorama._transform is the u_cubeMapPanoramaTransform uniform read each frame — just mutate it.
-    let lastSkyboxOrientUpdate = 0
-    const removeSkyboxOrient = viewer.scene.preRender.addEventListener(() => {
-      if (skyboxRef.current === 'default') return
-      const now = Date.now()
-      if (now - lastSkyboxOrientUpdate < 300) return
-      lastSkyboxOrientUpdate = now
-      try {
-        const pano = (viewer.scene.skyBox as unknown as Record<string, Record<string, unknown>>)?._panorama
-        if (pano?._transform) {
-          pano._transform = computeSkyboxTransform(viewer.camera.position)
-        }
-      } catch { /* ignore */ }
-    })
-
     return () => {
-      removeSkyboxOrient()
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
       if (viewerRef.current && !viewerRef.current.isDestroyed()) {
         viewerRef.current.destroy()
