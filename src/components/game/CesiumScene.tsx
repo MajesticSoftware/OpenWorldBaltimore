@@ -325,10 +325,17 @@ export default function CesiumScene() {
 
   // Flight loop
   const startFlightLoop = useCallback(() => {
+    // Cancel any existing loop before starting a new one
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current)
+      animFrameRef.current = 0
+    }
+
     const MOVE_SPEED = 120 // m/s base
     const BOOST = 4
     const DAMPING = 0.92
     let lastTime = performance.now()
+    let lastHudUpdate = 0
 
     function loop() {
       const viewer = viewerRef.current
@@ -410,10 +417,14 @@ export default function CesiumScene() {
         cameraOffset
       )
 
-      // Update HUD
-      const latDeg = Cesium.Math.toDegrees(carto.latitude)
-      const lngDeg = Cesium.Math.toDegrees(carto.longitude)
-      setHudData({ lat: latDeg, lng: lngDeg, alt: carto.height, speed: flight.speed * 3.6 })
+      // Update HUD at max 10fps — 60fps setHudData re-renders the whole component
+      // every frame, causing React to re-mount buttons mid-click
+      if (now - lastHudUpdate > 100) {
+        const latDeg = Cesium.Math.toDegrees(carto.latitude)
+        const lngDeg = Cesium.Math.toDegrees(carto.longitude)
+        setHudData({ lat: latDeg, lng: lngDeg, alt: carto.height, speed: flight.speed * 3.6 })
+        lastHudUpdate = now
+      }
 
       animFrameRef.current = requestAnimationFrame(loop)
     }
