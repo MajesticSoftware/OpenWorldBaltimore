@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
 import Script from 'next/script'
+import CesiumErrorBoundary from '@/components/game/CesiumErrorBoundary'
 
 const CesiumScene = dynamic(() => import('@/components/game/CesiumScene'), {
   ssr: false,
@@ -22,9 +23,7 @@ export default function PlayPage() {
 
   return (
     <>
-      {/* Load Cesium.js as a plain script — keeps webpack/Terser from bundling it.
-          Production: webpack external maps `import cesium` → window.Cesium.
-          Dev: Turbopack alias handles the import; script is a no-op duplicate. */}
+      {/* Load Cesium.js as a plain script — keeps webpack/Terser from bundling it. */}
       <Script
         src="/cesium/Cesium.js"
         strategy="afterInteractive"
@@ -35,7 +34,9 @@ export default function PlayPage() {
       />
       <link rel="stylesheet" href="/cesium/Widgets/widgets.css" />
       <div className="w-full h-screen overflow-hidden bg-black">
-        {ready && <CesiumScene />}
+        <CesiumErrorBoundary>
+          {ready && <CesiumScene />}
+        </CesiumErrorBoundary>
       </div>
     </>
   )

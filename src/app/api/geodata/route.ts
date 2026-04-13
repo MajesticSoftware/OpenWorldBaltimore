@@ -1,10 +1,6 @@
 import { NextResponse } from 'next/server'
 import { BALTIMORE_BBOX } from '@/lib/constants'
 import { parseOverpassData, type OverpassResponse } from '@/lib/geo-utils'
-import fs from 'fs'
-import path from 'path'
-
-const CACHE_PATH = path.join(process.cwd(), 'public', 'baltimore-geodata.json')
 
 // Overpass QL query for Baltimore downtown area
 function buildOverpassQuery(): string {
@@ -35,14 +31,15 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const refresh = searchParams.get('refresh') === 'true'
 
-  // Check for cached data
-  if (!refresh && fs.existsSync(CACHE_PATH)) {
-    try {
-      const cached = JSON.parse(fs.readFileSync(CACHE_PATH, 'utf-8'))
-      return NextResponse.json(cached)
-    } catch {
-      // Cache corrupted, continue to fetch
-    }
+  // In production (Vercel) the pre-baked /public/baltimore-geodata.json is served
+  // directly as a static asset — clients should fetch /baltimore-geodata.json instead.
+  // This route is only used when ?refresh=true to pull fresh data from Overpass.
+  // fs.writeFileSync is intentionally omitted: Vercel's filesystem is read-only at runtime.
+  if (!refresh) {
+    return NextResponse.json(
+      { error: 'Use the static asset /baltimore-geodata.json for reads. Pass ?refresh=true to re-fetch from Overpass (dev only).' },
+      { status: 400 }
+    )
   }
 
   try {
@@ -59,14 +56,6 @@ export async function GET(request: Request) {
 
     const rawData: OverpassResponse = await response.json()
     const parsed = parseOverpassData(rawData)
-
-    // Cache the processed data
-    try {
-      fs.writeFileSync(CACHE_PATH, JSON.stringify(parsed))
-    } catch (e) {
-      console.warn('Could not write cache file:', e)
-    }
-
     return NextResponse.json(parsed)
   } catch (error) {
     console.error('Geodata fetch error:', error)
