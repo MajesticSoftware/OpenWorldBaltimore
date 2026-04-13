@@ -173,14 +173,15 @@ export default function CesiumScene() {
     })
 
     // Add UFO entity (hidden initially until fly mode)
+    // Model credit: "ufo" by thundercg9 (https://skfb.ly/onJSA) — CC Attribution 4.0
     const ufoEntity = viewer.entities.add({
       name: 'UFO',
       position: Cesium.Cartesian3.fromDegrees(BALTIMORE_LNG, BALTIMORE_LAT, INITIAL_ALT),
       model: {
-        uri: '/ufo/scene.gltf',
-        minimumPixelSize: 16,
-        maximumScale: 10,
-        scale: 0.16,
+        uri: '/ufoHQ/scene.gltf',
+        minimumPixelSize: 32,
+        maximumScale: 20,
+        scale: 0.5,
         silhouetteColor: Cesium.Color.CYAN,
         silhouetteSize: 1,
       },
@@ -318,18 +319,24 @@ export default function CesiumScene() {
       const boost = keys.has('ShiftLeft') || keys.has('ShiftRight') ? BOOST : 1
       const speed = MOVE_SPEED * boost
 
-      // Q/E rotate heading
+      // Q/E rotate UFO heading
       if (keys.has('KeyQ')) flight.heading += 1.5 * dt
       if (keys.has('KeyE')) flight.heading -= 1.5 * dt
 
-      // Calculate movement direction
+      // Arrow Keys = camera orbit (independent of UFO movement)
+      if (keys.has('ArrowLeft')) flightRef.current!.heading += 1.5 * dt
+      if (keys.has('ArrowRight')) flightRef.current!.heading -= 1.5 * dt
+      if (keys.has('ArrowUp')) flightRef.current!.pitch = Math.max(-0.5, flightRef.current!.pitch - 1.0 * dt)
+      if (keys.has('ArrowDown')) flightRef.current!.pitch = Math.min(0.8, flightRef.current!.pitch + 1.0 * dt)
+
+      // WASD = UFO physical movement only
       let forwardSpeed = 0
       let strafeSpeed = 0
       let verticalSpeed = 0
-      if (keys.has('KeyW') || keys.has('ArrowUp')) forwardSpeed -= speed
-      if (keys.has('KeyS') || keys.has('ArrowDown')) forwardSpeed += speed
-      if (keys.has('KeyA') || keys.has('ArrowLeft')) strafeSpeed -= speed
-      if (keys.has('KeyD') || keys.has('ArrowRight')) strafeSpeed += speed
+      if (keys.has('KeyW')) forwardSpeed -= speed
+      if (keys.has('KeyS')) forwardSpeed += speed
+      if (keys.has('KeyA')) strafeSpeed -= speed
+      if (keys.has('KeyD')) strafeSpeed += speed
       if (keys.has('Space')) verticalSpeed += speed * 0.7
       if (keys.has('KeyC')) verticalSpeed -= speed * 0.7
 
@@ -509,13 +516,16 @@ export default function CesiumScene() {
             <span><kbd className="text-white bg-white/10 px-1 rounded">Ctrl+Drag</kbd> Tilt</span>
           </div>
         ) : (
-          <div className="flex gap-3 text-[10px] font-mono text-gray-400">
-            <span><kbd className="text-white bg-white/10 px-1 rounded">WASD</kbd> Move</span>
-            <span><kbd className="text-white bg-white/10 px-1 rounded">Q/E</kbd> Rotate</span>
-            <span><kbd className="text-white bg-white/10 px-1 rounded">Space</kbd> Up</span>
-            <span><kbd className="text-white bg-white/10 px-1 rounded">C</kbd> Down</span>
-            <span><kbd className="text-white bg-white/10 px-1 rounded">Shift</kbd> Boost</span>
-            <span><kbd className="text-white bg-white/10 px-1 rounded">Drag</kbd> Look</span>
+          <div className="flex flex-col gap-1">
+            <div className="flex gap-3 text-[10px] font-mono text-gray-400">
+              <span><kbd className="text-white bg-white/10 px-1 rounded">WASD</kbd> Move UFO</span>
+              <span><kbd className="text-white bg-white/10 px-1 rounded">↑↓←→</kbd> Camera</span>
+              <span><kbd className="text-white bg-white/10 px-1 rounded">Q/E</kbd> UFO Rotate</span>
+              <span><kbd className="text-white bg-white/10 px-1 rounded">Space</kbd> Up</span>
+              <span><kbd className="text-white bg-white/10 px-1 rounded">C</kbd> Down</span>
+              <span><kbd className="text-white bg-white/10 px-1 rounded">Shift</kbd> Boost</span>
+              <span><kbd className="text-white bg-white/10 px-1 rounded">Drag</kbd> Orbit</span>
+            </div>
           </div>
         )}
       </div>
