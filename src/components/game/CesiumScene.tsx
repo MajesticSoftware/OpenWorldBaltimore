@@ -45,6 +45,7 @@ export default function CesiumScene() {
   const ufoEntityRef = useRef<CesiumType.Entity | null>(null)
   const animFrameRef = useRef<number>(0)
   const wobbleTimeRef = useRef<number>(0)
+  const skyboxRef = useRef<SkyboxOption>('default')
   const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState<GameMode>('orbit')
   const [hudData, setHudData] = useState({ lat: BALTIMORE_LAT, lng: BALTIMORE_LNG, alt: INITIAL_ALT, speed: 0 })
@@ -71,6 +72,7 @@ export default function CesiumScene() {
     const viewer = viewerRef.current
     if (!viewer || viewer.isDestroyed()) return
 
+    skyboxRef.current = skybox
     const scene = viewer.scene
 
     if (skybox === 'default') {
@@ -215,7 +217,41 @@ export default function CesiumScene() {
 
     setTimeout(() => setLoading(false), 2500)
 
+    // Fix skybox ECEF tilt: Cesium renders skyboxes in ECEF space but our
+    // panoramas expect local horizon = midline. At Baltimore (39°N), the ECEF
+    // axes are ~51° off from the local horizon, making the sky look sideways.
+    // Apply the ENU rotation so the skybox horizon aligns with the local ground.
+    let lastSkyboxOrientUpdate = 0
+    const removeSkyboxOrient = viewer.scene.preRender.addEventListener(() => {
+      const now = Date.now()
+      if (now - lastSkyboxOrientUpdate < 300) return
+      if (skyboxRef.current === 'default') return // Cesium star skybox is fine in ECEF
+      lastSkyboxOrientUpdate = now
+
+      const sb = viewer.scene.skyBox
+      if (!sb) return
+      try {
+        // Build ECEF→ENU rotation at the viewer's current ground position
+        const carto = Cesium.Cartographic.fromCartesian(viewer.camera.position)
+        const groundPos = Cesium.Cartesian3.fromRadians(carto.longitude, carto.latitude, 0)
+        const enuToEcef = Cesium.Transforms.eastNorthUpToFixedFrame(groundPos)
+        const enuRot = Cesium.Matrix4.getMatrix3(enuToEcef, new Cesium.Matrix3())
+        const ecefToEnu = Cesium.Matrix3.transpose(enuRot, new Cesium.Matrix3())
+        // Remap ENU axes to cubemap axes: East→+X, Up→+Y, North→-Z
+        // Matrix3 constructor is column-major: (col0r0,col0r1,col0r2, col1r0...)
+        const enuToCube = new Cesium.Matrix3(
+          1, 0,  0,   // col0 (East  → cubemap +X)
+          0, 0, -1,   // col1 (North → cubemap -Z)
+          0, 1,  0    // col2 (Up    → cubemap +Y)
+        )
+        const rot = Cesium.Matrix3.multiply(enuToCube, ecefToEnu, new Cesium.Matrix3())
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(sb as any).modelMatrix = Cesium.Matrix4.fromRotationTranslation(rot, Cesium.Cartesian3.ZERO)
+      } catch { /* viewer may be mid-frame */ }
+    })
+
     return () => {
+      removeSkyboxOrient()
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
       if (viewerRef.current && !viewerRef.current.isDestroyed()) {
         viewerRef.current.destroy()
