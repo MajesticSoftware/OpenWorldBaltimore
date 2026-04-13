@@ -130,10 +130,13 @@ export default function CesiumScene() {
       if (scene.sun) scene.sun.show = true
       if (scene.moon) scene.moon.show = false
       const dir = `/skybox-faces/${skybox}`
+      // anime cubemap was generated with py/ny swapped (py contains nadir, ny contains zenith)
+      const pyFace = skybox === 'anime' ? `${dir}/ny.jpg` : `${dir}/py.jpg`
+      const nyFace = skybox === 'anime' ? `${dir}/py.jpg` : `${dir}/ny.jpg`
       const sb = new Cesium.SkyBox({
         sources: {
           positiveX: `${dir}/px.jpg`, negativeX: `${dir}/nx.jpg`,
-          positiveY: `${dir}/py.jpg`, negativeY: `${dir}/ny.jpg`,
+          positiveY: pyFace, negativeY: nyFace,
           positiveZ: `${dir}/pz.jpg`, negativeZ: `${dir}/nz.jpg`,
         },
       })
@@ -271,9 +274,24 @@ export default function CesiumScene() {
 
       startFlightLoop()
     } else {
+      // Capture last UFO position before clearing flight state
+      const lastPos = flightRef.current?.position ?? null
+      const lastHeading = flightRef.current?.heading ?? 0
+
       // Disable UFO
       if (ufoEntityRef.current) ufoEntityRef.current.show = false
       flightRef.current = null
+
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current)
+        animFrameRef.current = 0
+      }
+
+      // CRITICAL: release lookAtTransform lock before re-enabling controls.
+      // The flight loop calls lookAtTransform every frame, locking the camera
+      // to the UFO's ENU frame. Without this reset the camera snaps to the
+      // ECEF +Y axis (lng 90°E) when controls are re-enabled.
+      viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY)
 
       // Re-enable default camera controls
       viewer.scene.screenSpaceCameraController.enableRotate = true
@@ -282,9 +300,19 @@ export default function CesiumScene() {
       viewer.scene.screenSpaceCameraController.enableTilt = true
       viewer.scene.screenSpaceCameraController.enableLook = true
 
-      if (animFrameRef.current) {
-        cancelAnimationFrame(animFrameRef.current)
-        animFrameRef.current = 0
+      // Fly camera back to last known UFO position so Baltimore stays in view
+      if (lastPos) {
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromElements(
+            lastPos.x, lastPos.y, lastPos.z
+          ),
+          orientation: {
+            heading: lastHeading,
+            pitch: Cesium.Math.toRadians(-25),
+            roll: 0,
+          },
+          duration: 0.8,
+        })
       }
     }
   }, [mode])

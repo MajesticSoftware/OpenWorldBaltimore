@@ -100,7 +100,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="relative z-10 text-center py-6 border-t border-gray-900">
         <p className="text-xs text-gray-600 font-mono">
-          Built with Three.js + OpenStreetMap + Next.js | Data © OpenStreetMap Contributors
+          Built with CesiumJS + Google Photorealistic 3D Tiles + Next.js | Map data © OpenStreetMap Contributors
         </p>
       </footer>
     </div>
