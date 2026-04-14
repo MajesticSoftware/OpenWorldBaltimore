@@ -14,6 +14,7 @@
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@supabase/supabase-js": "^2.100.1",
+    "@vercel/analytics": "^2.0.1",
     "3d-tiles-renderer": "^0.4.23",
     "cesium": "^1.140.0",
     "geolib": "^3.3.4",
