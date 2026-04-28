@@ -1,8 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
-import Script from 'next/script'
 import CesiumErrorBoundary from '@/components/game/CesiumErrorBoundary'
 
 const CesiumScene = dynamic(() => import('@/components/game/CesiumScene'), {
@@ -23,19 +22,43 @@ interface Props {
 }
 
 export default function PlayClient({ ionToken }: Props) {
-  const [ready, setReady] = useState(false)
+  const [ready, setReady] = useState(
+    () => typeof window !== 'undefined' && Boolean((window as unknown as Record<string, unknown>).Cesium)
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    const existing = document.querySelector('script[data-cesium-script="true"]') as HTMLScriptElement | null
+    if (existing) {
+      if ((window as unknown as Record<string, unknown>).Cesium) {
+        ;(window as unknown as Record<string, unknown>).CESIUM_BASE_URL = '/cesium'
+      } else {
+        existing.addEventListener('load', () => {
+          if (cancelled) return
+          ;(window as unknown as Record<string, unknown>).CESIUM_BASE_URL = '/cesium'
+          setReady(true)
+        }, { once: true })
+      }
+      return () => { cancelled = true }
+    }
+
+    const script = document.createElement('script')
+    script.src = '/cesium/Cesium.js'
+    script.async = true
+    script.dataset.cesiumScript = 'true'
+    script.onload = () => {
+      if (cancelled) return
+      ;(window as unknown as Record<string, unknown>).CESIUM_BASE_URL = '/cesium'
+      setReady(true)
+    }
+    document.head.appendChild(script)
+
+    return () => { cancelled = true }
+  }, [])
 
   return (
     <>
-      {/* Load Cesium.js as a plain script — keeps webpack/Terser from bundling it. */}
-      <Script
-        src="/cesium/Cesium.js"
-        strategy="afterInteractive"
-        onLoad={() => {
-          (window as unknown as Record<string, unknown>).CESIUM_BASE_URL = '/cesium'
-          setReady(true)
-        }}
-      />
+      {/* eslint-disable-next-line @next/next/no-css-tags */}
       <link rel="stylesheet" href="/cesium/Widgets/widgets.css" />
       <div className="w-full h-screen overflow-hidden bg-black">
         <CesiumErrorBoundary>

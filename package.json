@@ -7,10 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "rm -rf public/cesium && cp -r node_modules/cesium/Build/Cesium public/cesium && node scripts/patch-cesium.mjs || true"
+    "postinstall": "rm -rf public/cesium && cp -r node_modules/cesium/Build/Cesium public/cesium && node scripts/patch-cesium.mjs || true",
+    "perf:test": "playwright test -c playwright.perf.config.ts",
+    "perf:test:headed": "playwright test -c playwright.perf.config.ts --headed",
+    "perf:test:docker": "mkdir -p perf-results && docker build -f Dockerfile.perf -t owb-perf . && docker run --rm -v \"$PWD/perf-results:/app/perf-results\" -e PERF_RUNS=${PERF_RUNS:-5} -e PERF_MEASURED_RUNS=${PERF_MEASURED_RUNS:-5} -e PERF_WARMUP_RUNS=${PERF_WARMUP_RUNS:-1} -e PERF_FAIL_P95_MS=${PERF_FAIL_P95_MS:-300} -e PERF_FILTER_OUTLIERS=${PERF_FILTER_OUTLIERS:-1} owb-perf"
   },
   "dependencies": {
-    "@clerk/nextjs": "^7.0.7",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@supabase/supabase-js": "^2.100.1",
@@ -26,6 +28,7 @@
     "three": "^0.183.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

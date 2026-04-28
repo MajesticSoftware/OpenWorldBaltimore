@@ -2,11 +2,10 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type * as CesiumType from 'cesium'
-import { Loader2, Rocket, Globe, Sun, Moon } from 'lucide-react'
+import { Loader2, Rocket, Globe } from 'lucide-react'
 
 // Cesium is loaded as a plain <script> tag in play/page.tsx (window.Cesium).
 // import type erases at compile time — webpack/Terser never touch the Cesium package.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const Cesium: typeof CesiumType
 
 // Baltimore Inner Harbor (corrected to center of Inner Harbor promenade)
@@ -35,6 +34,37 @@ interface FlightState {
   speed: number
 }
 
+interface EventLocation {
+  latitude?: number
+  longitude?: number
+}
+
+interface RemoteEvent {
+  name?: string
+  description?: string
+  startDate?: string
+  url?: string
+  orgName?: string
+  tags?: string[]
+  location?: EventLocation
+}
+
+function buildClusterListHtml(clusteredEntities: CesiumType.Entity[]): string {
+  const items = clusteredEntities
+    .map((entity) => entity.name?.toString().trim())
+    .filter((name): name is string => Boolean(name))
+  const unique = Array.from(new Set(items))
+  const visible = unique.slice(0, 20)
+  const extra = Math.max(0, unique.length - visible.length)
+  const list = visible.map((name) => `<li>${name}</li>`).join('')
+  const extraLine = extra > 0 ? `<p><em>+${extra} more</em></p>` : ''
+  return `
+    <h3>${unique.length} events in this area</h3>
+    <ul>${list}</ul>
+    ${extraLine}
+  `
+}
+
 interface Props {
   ionToken: string
 }
@@ -47,13 +77,26 @@ export default function CesiumScene({ ionToken }: Props) {
   const isDraggingRef = useRef(false)
   const lastMouseRef = useRef({ x: 0, y: 0 })
   const ufoEntityRef = useRef<CesiumType.Entity | null>(null)
+  const eventEntitiesRef = useRef<CesiumType.Entity[]>([])
+  const eventDataSourceRef = useRef<CesiumType.CustomDataSource | null>(null)
+  const eventEntityIdSetRef = useRef<Set<string>>(new Set())
+  const lastHoveredEventIdRef = useRef<string | null>(null)
+  const hoverThrottleRef = useRef(0)
+  const lastMouseRefForHover = useRef<{ x: number; y: number } | null>(null)
+  const startFlightLoopRef = useRef<() => void>(() => {})
   const animFrameRef = useRef<number>(0)
   const wobbleTimeRef = useRef<number>(0)
   const skyboxRef = useRef<SkyboxOption>('default')
   const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState<GameMode>('orbit')
+  const [eventCount, setEventCount] = useState(0)
   const [hudData, setHudData] = useState({ lat: BALTIMORE_LAT, lng: BALTIMORE_LNG, alt: INITIAL_ALT, speed: 0 })
   const [skybox, setSkybox] = useState<SkyboxOption>('default')
+  const eventMarkersEnabled = useMemo(() => {
+    if (typeof window === 'undefined') return true
+    const value = new URLSearchParams(window.location.search).get('events')
+    return value !== 'off'
+  }, [])
 
   // Generate a gradient cubemap face as a data URL
   const makeGradientFace = useCallback((topHex: string, midHex: string, botHex: string, size = 256) => {
@@ -188,7 +231,7 @@ export default function CesiumScene({ ionToken }: Props) {
       timeline: false,
       fullscreenButton: false,
       vrButton: false,
-      infoBox: false,
+      infoBox: true,
       selectionIndicator: false,
       skyAtmosphere: new Cesium.SkyAtmosphere(),
       orderIndependentTranslucency: false,
@@ -201,6 +244,15 @@ export default function CesiumScene({ ionToken }: Props) {
     try {
       const creditContainer = viewer.cesiumWidget.creditContainer as HTMLElement
       creditContainer.style.fontSize = '10px'
+    } catch { /* ignore */ }
+    try {
+      const infoBoxContainer = viewer.container.querySelector('.cesium-viewer-infoBoxContainer') as HTMLElement | null
+      if (infoBoxContainer) {
+        infoBoxContainer.style.top = 'auto'
+        infoBoxContainer.style.right = 'auto'
+        infoBoxContainer.style.left = '12px'
+        infoBoxContainer.style.bottom = '12px'
+      }
     } catch { /* ignore */ }
 
     // Fly to Baltimore immediately
@@ -249,7 +301,177 @@ export default function CesiumScene({ ionToken }: Props) {
       }
       viewerRef.current = null
     }
-  }, [])
+  }, [ionToken])
+
+  // Fetch upcoming Baltimore events and place markers for rows with valid coordinates.
+  useEffect(() => {
+    if (!eventMarkersEnabled) return
+    const viewer = viewerRef.current
+    if (!viewer || viewer.isDestroyed()) return
+    const eventEntities = eventEntitiesRef.current
+    const eventIdSet = eventEntityIdSetRef.current
+    const eventDataSource = new Cesium.CustomDataSource('events')
+    eventDataSourceRef.current = eventDataSource
+    viewer.dataSources.add(eventDataSource)
+    eventDataSource.clustering.enabled = true
+    eventDataSource.clustering.pixelRange = 45
+    eventDataSource.clustering.minimumClusterSize = 3
+    eventDataSource.clustering.clusterEvent.addEventListener((clusteredEntities, cluster) => {
+      const size = clusteredEntities.length
+      const baseSize = Math.min(40, 18 + Math.sqrt(size) * 2.5)
+      cluster.label.show = false
+      cluster.billboard.show = false
+      cluster.point.show = true
+      cluster.point.pixelSize = baseSize
+      cluster.point.color = Cesium.Color.CYAN.withAlpha(0.85)
+      cluster.point.outlineColor = Cesium.Color.BLACK.withAlpha(0.85)
+      cluster.point.outlineWidth = 2
+      cluster.point.disableDepthTestDistance = Number.POSITIVE_INFINITY
+      const clusterEntity = new Cesium.Entity({
+        name: `${size} events`,
+        description: buildClusterListHtml(clusteredEntities),
+      })
+      cluster.point.id = clusterEntity
+    })
+
+    let cancelled = false
+
+    async function loadEventMarkers() {
+      try {
+        const res = await fetch('/api/events', { cache: 'force-cache' })
+        if (!res.ok) return
+        const data: unknown = await res.json()
+        if (!Array.isArray(data)) return
+
+        const events = data as RemoteEvent[]
+        const markerEvents = events.filter((event) => {
+          const lat = event.location?.latitude
+          const lng = event.location?.longitude
+          return typeof lat === 'number' && Number.isFinite(lat) && typeof lng === 'number' && Number.isFinite(lng)
+        })
+
+        if (cancelled || !viewerRef.current || viewerRef.current.isDestroyed()) return
+
+        for (const event of markerEvents) {
+          const lat = event.location!.latitude as number
+          const lng = event.location!.longitude as number
+          const name = event.name?.trim() || 'Untitled event'
+          const description = (event.description || '').trim()
+          const sourceUrl = event.url || ''
+          const org = event.orgName || 'Unknown organizer'
+          const start = event.startDate ? new Date(event.startDate) : null
+          const startText = start && !Number.isNaN(start.getTime()) ? start.toLocaleString() : 'Unknown time'
+          const tagsText = event.tags?.length ? event.tags.join(', ') : 'None'
+          const descHtml = description ? `<p>${description}</p>` : '<p>No description provided.</p>'
+          const linkHtml = sourceUrl ? `<p><a href="${sourceUrl}" target="_blank" rel="noopener noreferrer">Event link</a></p>` : ''
+
+          const entity = eventDataSource.entities.add({
+            name,
+            position: Cesium.Cartesian3.fromDegrees(lng, lat, 8),
+            point: {
+              pixelSize: 14,
+              color: Cesium.Color.CYAN.withAlpha(0.9),
+              outlineColor: Cesium.Color.BLACK.withAlpha(0.8),
+              outlineWidth: 2,
+              heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            },
+            description: `
+              <h3>${name}</h3>
+              <p><strong>Organizer:</strong> ${org}</p>
+              <p><strong>Start:</strong> ${startText}</p>
+              <p><strong>Tags:</strong> ${tagsText}</p>
+              ${descHtml}
+              ${linkHtml}
+            `,
+          })
+
+          eventEntities.push(entity)
+          if (entity.id) eventIdSet.add(String(entity.id))
+        }
+
+        setEventCount(eventEntities.length)
+      } catch {
+        // Ignore network/parsing failures so the scene still renders.
+      }
+    }
+
+    loadEventMarkers()
+
+    return () => {
+      cancelled = true
+      const currentViewer = viewerRef.current
+      if (!currentViewer || currentViewer.isDestroyed()) return
+      if (eventDataSourceRef.current) currentViewer.dataSources.remove(eventDataSourceRef.current, true)
+      eventDataSourceRef.current = null
+      eventEntities.length = 0
+      eventIdSet.clear()
+      lastHoveredEventIdRef.current = null
+    }
+  }, [eventMarkersEnabled])
+
+  // Show event info on hover.
+  useEffect(() => {
+    if (!eventMarkersEnabled) return
+    const viewer = viewerRef.current
+    if (!viewer || viewer.isDestroyed()) return
+
+    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+    handler.setInputAction((movement: CesiumType.ScreenSpaceEventHandler.MotionEvent) => {
+      const now = performance.now()
+      if (now - hoverThrottleRef.current < 90) return
+      hoverThrottleRef.current = now
+
+      const prev = lastMouseRefForHover.current
+      const curr = movement.endPosition
+      if (prev) {
+        const dx = curr.x - prev.x
+        const dy = curr.y - prev.y
+        if ((dx * dx + dy * dy) < 16) return
+      }
+      lastMouseRefForHover.current = { x: curr.x, y: curr.y }
+
+      const picked = viewer.scene.pick(movement.endPosition)
+      if (!Cesium.defined(picked)) {
+        if (lastHoveredEventIdRef.current !== null) {
+          viewer.selectedEntity = undefined
+          lastHoveredEventIdRef.current = null
+        }
+        return
+      }
+
+      const entity = (picked as { id?: CesiumType.Entity }).id
+      if (!entity) {
+        if (lastHoveredEventIdRef.current !== null) {
+          viewer.selectedEntity = undefined
+          lastHoveredEventIdRef.current = null
+        }
+        return
+      }
+
+      const entityId = String(entity.id)
+      const isClusterEntity = !eventEntityIdSetRef.current.has(entityId)
+        && Boolean(entity.description)
+        && entity.name?.toString().includes('events')
+
+      if (eventEntityIdSetRef.current.has(entityId) || isClusterEntity) {
+        if (lastHoveredEventIdRef.current !== entityId) {
+          viewer.selectedEntity = entity
+          lastHoveredEventIdRef.current = entityId
+        }
+      } else {
+        if (lastHoveredEventIdRef.current !== null) {
+          viewer.selectedEntity = undefined
+          lastHoveredEventIdRef.current = null
+        }
+      }
+    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
+
+    return () => {
+      if (!handler.isDestroyed()) handler.destroy()
+      lastMouseRefForHover.current = null
+    }
+  }, [eventMarkersEnabled])
 
   // Handle mode changes
   useEffect(() => {
@@ -276,7 +498,7 @@ export default function CesiumScene({ ionToken }: Props) {
       viewer.scene.screenSpaceCameraController.enableTilt = false
       viewer.scene.screenSpaceCameraController.enableLook = false
 
-      startFlightLoop()
+      startFlightLoopRef.current()
     } else {
       // Capture last UFO position before clearing flight state
       const lastPos = flightRef.current?.position ?? null
@@ -385,7 +607,6 @@ export default function CesiumScene({ ionToken }: Props) {
 
     const MOVE_SPEED = 120 // m/s base
     const BOOST = 4
-    const DAMPING = 0.92
     let lastTime = performance.now()
     let lastHudUpdate = 0
 
@@ -484,6 +705,10 @@ export default function CesiumScene({ ionToken }: Props) {
     animFrameRef.current = requestAnimationFrame(loop)
   }, [])
 
+  useEffect(() => {
+    startFlightLoopRef.current = startFlightLoop
+  }, [startFlightLoop])
+
   // Update HUD in orbit mode
   useEffect(() => {
     if (mode !== 'orbit') return
@@ -550,6 +775,10 @@ export default function CesiumScene({ ionToken }: Props) {
               <span className="text-white font-mono text-xs">{hudData.speed.toFixed(0)} km/h</span>
             </div>
           )}
+          <div className="flex justify-between">
+            <span className="text-gray-400 font-mono text-xs">EVENTS</span>
+            <span className="text-white font-mono text-xs">{eventMarkersEnabled ? eventCount : 0}</span>
+          </div>
         </div>
       </div>
 
