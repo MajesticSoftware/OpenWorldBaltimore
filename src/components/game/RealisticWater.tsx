@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { EastNorthUpFrame } from '3d-tiles-renderer/r3f'
@@ -103,8 +103,10 @@ export default function RealisticWater({ width = 500, height = 400, visible = tr
 
   useFrame((_, delta) => {
     if (!visible) return
-    uniforms.uTime.value += delta
-    uniforms.uCameraPosition.value.copy(camera.position)
+    const material = meshRef.current?.material as THREE.ShaderMaterial | undefined
+    if (!material?.uniforms) return
+    material.uniforms.uTime.value += delta
+    material.uniforms.uCameraPosition.value.copy(camera.position)
   })
 
   if (!visible) return null

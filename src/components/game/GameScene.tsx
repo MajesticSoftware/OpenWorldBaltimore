@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import GoogleTiles from './GoogleTiles'
 import PhotoHUD from './PhotoHUD'
 import { usePlayerSession } from '@/hooks/usePlayerSession'
-import { Loader2, Rocket, Globe, Keyboard, Waves, TreePine, Mountain } from 'lucide-react'
+import { Loader2, Rocket, Globe, Waves } from 'lucide-react'
 import Skybox, { type SkyboxPreset } from './Skybox'
 
 const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''

@@ -8,6 +8,16 @@ interface BuildingsProps {
   buildings: BuildingData[]
 }
 
+function deterministicVariation(seed: string): number {
+  let hash = 2166136261
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  const normalized = ((hash >>> 0) % 1000) / 1000
+  return (normalized - 0.5) * 0.06
+}
+
 // Color palette for buildings based on type
 function getBuildingColor(type: string, height: number): THREE.Color {
   // Taller buildings get a more bluish/glass tint
@@ -79,8 +89,10 @@ export default function Buildings({ buildings }: BuildingsProps) {
 
         // Add vertex colors
         const color = getBuildingColor(building.type, building.height)
-        // Slight random variation for visual interest
-        const variation = (Math.random() - 0.5) * 0.06
+        // Slight deterministic variation for visual interest without render-time randomness
+        const variation = deterministicVariation(
+          `${building.type}:${building.height}:${building.outline[0].x}:${building.outline[0].z}`
+        )
         const r = Math.max(0, Math.min(1, color.r + variation))
         const g = Math.max(0, Math.min(1, color.g + variation))
         const b = Math.max(0, Math.min(1, color.b + variation))

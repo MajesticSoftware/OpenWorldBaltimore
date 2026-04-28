@@ -1,4 +1,5 @@
 'use client'
+/* eslint-disable react-hooks/immutability */
 
 import { useThree } from '@react-three/fiber'
 import { useEffect, useMemo, Suspense } from 'react'
