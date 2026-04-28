@@ -42,3 +42,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# clerk configuration (can include secrets)
+/.clerk/
+
+# perf / e2e artifacts
+/perf-results/
+/test-results/
+/playwright-report/
+
+# local tool artifacts
+/.codex
